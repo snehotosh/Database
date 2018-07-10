@@ -1,0 +1,7 @@
+CREATE TABLE REFRESH_TOKEN(CREATE_DATE TIMESTAMP, access_token VARCHAR(500), token_type VARCHAR(10), expires_in VARCHAR(10), refresh_token varchar(500), scope varchar(10));
+INSERT INTO REFRESH_TOKEN(CREATE_DATE,refresh_token) VALUES (SYSDATE,'<REFRESH TOKEN>');
+
+CREATE TABLE SRM_MESSAGES(ID VARCHAR(100),TYPE VARCHAR(100),RESOURCE_NAME VARCHAR(100),RESOURCE_TYPE VARCHAR(100),BODY VARCHAR(4000));
+
+orapki wallet create -wallet https_wallet2 -pwd **** -auto_login
+orapki wallet add -wallet https_wallet2 -cert <file name>.crt -trusted_cert -pwd ****
