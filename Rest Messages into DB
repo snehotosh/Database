@@ -1,3 +1,5 @@
+set define off;
+
 DECLARE
    l_ws_response_clob     CLOB;
    l_refresh_token        VARCHAR(500);
@@ -6,7 +8,10 @@ DECLARE
    l_ws_response_clob2    CLOB;
    l_time                 TIMESTAMP;
    l_feature_count        pls_integer;
-   l_ws_url               VARCHAR2(500) := '****ADD THE LINK****';
+   l_ws_url               VARCHAR2(500); 
+   v_href                 VARCHAR2(500);
+   v_nextmsg              VARCHAR2(50);
+   v_cnt                    NUMBER:=0;
 BEGIN
    SELECT MAX(refresh_token) INTO l_refresh_token FROM REFRESH_TOKEN;
    dbms_output.put_line('Old Refresh Token: ' || dbms_lob.substr(l_refresh_token,12000,1));
@@ -16,16 +21,19 @@ BEGIN
      "refresh_token": "' || l_refresh_token || '",
      "grant_type": "refresh_token",
      "redirect_uri": "https://accounts.vitrue.com",
-     "client_id": "****ADD CLIENT-ID****",
-     "client_secret": "****ADD CLIENT SECRET****"     
+     "client_id": "",
+     "client_secret": ""     
    }';
+   /*
+   REST CALL for Authentication
+   */
    l_ws_response_clob := apex_web_service.make_rest_request
       (
-      p_url => '<***ADD THE URL***>/oauth/token',
+      p_url => '',
       p_body => l_body,
       p_http_method => 'POST',
-      p_wallet_path => '<WALLET FOLDER>',
-      p_wallet_pwd => '<PASSWORD>'
+      p_wallet_path => '',
+      p_wallet_pwd => ''
    );
    apex_json.parse(l_ws_response_clob);
    DELETE FROM REFRESH_TOKEN;
@@ -48,35 +56,75 @@ BEGIN
    apex_web_service.g_request_headers(1).value := 'Bearer ' || l_access_token;
    apex_web_service.g_request_headers(2).name  := 'Accept';
    apex_web_service.g_request_headers(2).value := 'application/json';
-   --Get Message
-   l_ws_response_clob2 := apex_web_service.make_rest_request
-      (
-      p_url => l_ws_url,
-      p_http_method => 'GET',
-      p_wallet_path => '<WALLET FOLDER>',
-      p_wallet_pwd => '<PASSWORD>'
-      );
-      --
-      dbms_output.put_line(dbms_lob.substr(l_ws_response_clob2,12000,1));
-    --Delete Messages
-    DELETE FROM SRM_MESSAGES;
-    
-    l_time := systimestamp;
-   --Parse Clob to JSON
-    INSERT INTO SRM_MESSAGES(ID,TYPE,RESOURCE_NAME,RESOURCE_TYPE,BODY) (
-          select id, type, resName, resType, body 
-          from json_table(
-              l_ws_response_clob2,
-              '$.items[*]'
-              columns(
-                      id      varchar2(200) path '$.id',
-                      type    varchar2(200) path '$.type', 
-                      resName varchar2(200) path '$.resource.resourceName', 
-                      resType varchar2(200) path '$.resource.resourceType', 
-                      body   varchar2(4000) path '$.body' 
-                     )
-                )
-              );     
-    dbms_output.put_line('Parsing Time: ' || extract(second from (systimestamp - l_time)));        
+   
+   /***********************
+   Get Messages from Here
+   ************************/
+  --Delete Messages
+   DELETE FROM SRM_MESSAGES;
+   DELETE FROM SRM_MESG_LOG;
+   l_ws_url:= '';
+   
+   WHILE l_ws_url != 'Dummy'
+   LOOP
+            v_cnt := v_cnt + 1;
+            dbms_output.put_line(v_cnt ||'--->'|| l_ws_url);
+             /*
+             Make a REST Call to fetch messages
+             */
+             l_ws_response_clob2 := apex_web_service.make_rest_request
+                (
+                p_url => l_ws_url,
+                p_http_method => 'GET',
+                p_wallet_path => 'file:C:\Users\SNEBANER\https_wallet2',
+                p_wallet_pwd => 'welcome1'
+                );
+              
+              l_time := systimestamp;
+             --Parse Clob to JSON
+              INSERT INTO SRM_MESSAGES(ID,TYPE,RESOURCE_NAME,RESOURCE_TYPE,BODY) (
+                    select id, type, resName, resType, body 
+                    from json_table(
+                        l_ws_response_clob2,
+                        '$.items[*]'
+                        columns(
+                                id      varchar2(200) path '$.id',
+                                type    varchar2(200) path '$.type', 
+                                resName varchar2(200) path '$.resource.resourceName', 
+                                resType varchar2(200) path '$.resource.resourceType', 
+                                body    varchar2(4000) path '$.body'                      
+                               )              
+                          )
+                        );     
+                      dbms_output.put_line( 'Parsing Time: ' || extract( second from ( systimestamp - l_time ) ) );
+                      
+                  select nextmsg,href INTO v_nextmsg,v_href from json_table(
+                        l_ws_response_clob2,
+                        '$.links[2]'
+                        columns(nextmsg      varchar2(100) path '$.rel',
+                                href         varchar2(500) path '$.href'));
+                  
+                  IF v_nextmsg = 'prev' then
+                    DBMS_OUTPUT.PUT_LINE('Encountered prev');
+                    EXIT;
+                  ELSE
+                  -- Insert the Next Tag HREF for Fetching next set of messages  
+                      INSERT INTO SRM_MESG_LOG(SEQ_NUM ,PREV_TAG,PREV_HREF,NEXT_TAG,NEXT_HREF) (
+                          select v_cnt,null,null,nextmsg,href 
+                          from json_table(
+                              l_ws_response_clob2,
+                              '$.links[2]'
+                              columns(
+                                      nextmsg      varchar2(100) path '$.rel',
+                                      href         varchar2(500) path '$.href'                     
+                                     )              
+                                )
+                              );
+                        COMMIT;
+              
+                      l_ws_url := v_href;
+                  END IF;     
+    END LOOP;        
+    dbms_output.put_line('I am here');
     COMMIT;
 END;
